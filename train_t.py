@@ -136,13 +136,19 @@ def train_step_compute(state: NNXTrainState, batch, noise_batch, t_batch, learni
     sigma_pred, new_batch_stats, new_rng_states = outputs
     # jax.debug.print('t_pred.shape: {s}', s=t_pred.shape)
     # jax.debug.print('t_batch.shape: {s}', s=t_batch.shape)
-    ### EDM
-    t_pred = 1 / (1 + sigma_pred)
-    t_batch = 1 / (1 + t_batch)
-    loss = jnp.mean((t_pred - t_batch.reshape(-1,1)) ** 2) # 菜就多练
-    dict_losses = {'loss': loss}
+    if config.task == "EDM":
+      t_pred = 1 / (1 + sigma_pred)
+      t_batch_new = 1 / (1 + t_batch)
+      loss = jnp.mean((t_pred - t_batch_new.reshape(-1,1)) ** 2) # 菜就多练
+      dict_losses = {'loss': loss}
+      pred_to_show = sigma_pred
+    elif config.task == "FM":
+      loss = jnp.mean((sigma_pred - t_batch.reshape(-1,1)) ** 2) # 菜就多练
+      dict_losses = {'loss': loss}
+      pred_to_show = sigma_pred
+    else: raise NotImplementedError
 
-    return loss, (new_batch_stats, new_rng_states, dict_losses, sigma_pred) # for debug
+    return loss, (new_batch_stats, new_rng_states, dict_losses, pred_to_show) # for debug
 
   step = state.step
   dynamic_scale = None
@@ -165,30 +171,10 @@ def train_step_compute(state: NNXTrainState, batch, noise_batch, t_batch, learni
     grads=grads, batch_stats=new_batch_stats, rng_states=new_rng_states
   )
 
-  # -------------------------------------------------------
-
-  # -------------------------------------------------------
-  # sanity
-  # ema_outputs, _ = state.apply_fn(
-  #     {'params': {'net': new_state.params['net_ema'],
-  #                 'net_ema': new_state.params['net_ema'],},
-  #      'batch_stats': state.batch_stats},
-  #     batch['image'],
-  #     batch['label'],
-  #     mutable=['batch_stats'],
-  #     rngs=dict(gen=rng_gen),
-  # )
-  # _, ema_dict_losses, _ = ema_outputs
-  # ema_metrics = compute_metrics(ema_dict_losses)
-
-  # metrics['ema_loss_train'] = ema_metrics['loss_train']
-  # metrics['delta_loss_train'] = metrics['loss_train'] - ema_metrics['loss_train']
-  # -------------------------------------------------------
-
   return new_state, metrics, sigma_pred
 
 
-def train_step(state: NNXTrainState, batch, rngs, train_step_compute_fn):
+def train_step(state: NNXTrainState, batch, rngs, train_step_compute_fn, config):
   """
   Perform a single training step.
   We will NOT pmap this function
@@ -202,10 +188,13 @@ def train_step(state: NNXTrainState, batch, rngs, train_step_compute_fn):
   # print("images.shape: ", images.shape) # (8, 64, 32, 32, 3)
   b1, b2 = images.shape[0], images.shape[1]
   noise_batch = jax.random.normal(rngs.train(), images.shape)
-  # t_batch = jax.random.uniform(rngs.train(), (b1, b2))
-  # EDM: t_batch is normal
-  t_batch = jax.random.normal(rngs.train(), (b1, b2)) 
-  t_batch = jnp.exp(t_batch * 1.2 - 1.2)
+  if config.task == "FM":
+    t_batch = jax.random.uniform(rngs.train(), (b1, b2))
+  elif config.task == "EDM":
+    # EDM: t_batch is normal
+    t_batch = jax.random.normal(rngs.train(), (b1, b2)) 
+    t_batch = jnp.exp(t_batch * 1.2 - 1.2)
+  else: raise NotImplementedError
 
   new_state, metrics, t_pred = train_step_compute_fn(state, batch, noise_batch, t_batch)
   # print("t_pred.shape: ", t_pred.shape)
@@ -215,6 +204,7 @@ def train_step(state: NNXTrainState, batch, rngs, train_step_compute_fn):
 
 def sqa_eval_step(state: NNXTrainState, batch, rngs, train_step_compute_fn, eval_noise_scale):
   """
+  only used for just_evaluate
   Perform a single training step.
   We will NOT pmap this function
   ---
@@ -237,18 +227,27 @@ def sqa_eval_step(state: NNXTrainState, batch, rngs, train_step_compute_fn, eval
 
   return new_state, metrics
 
-def eval_step(train_state:NNXTrainState, batch, noise_batch, t_batch):
+def eval_step(train_state:NNXTrainState, batch, noise_batch, t_batch, config):
+  """
+  Similar to train_step_compute
+  """
   sigma_pred, new_batch_stats, new_rng_params = train_state.apply_fn(train_state.graphdef, train_state.params, train_state.rng_states, train_state.batch_stats, train_state.useless_variable_state, False, batch['image'], noise_batch, t_batch) # False: is_training
-  ### EDM
-  t_pred = 1 / (1 + sigma_pred)
-  t_batch = 1 / (1 + t_batch)
-  loss = jnp.mean((t_pred - t_batch.reshape(-1,1)) ** 2) # 菜就多练
-  dict_losses = {'loss': loss}
+  if config.task == "EDM":
+    t_pred = 1 / (1 + sigma_pred)
+    t_batch = 1 / (1 + t_batch)
+    loss = jnp.mean((t_pred - t_batch.reshape(-1,1)) ** 2) # 菜就多练
+    dict_losses = {'loss': loss}
+    pred_to_show = sigma_pred
+  elif config.task == "FM":
+    loss = jnp.mean((sigma_pred - t_batch.reshape(-1,1)) ** 2) # 菜就多练
+    dict_losses = {'loss': loss}
+    pred_to_show = sigma_pred
+  else: raise NotImplementedError
 
   # compute metrics
   metrics = compute_metrics(dict_losses)
 
-  return None, metrics, sigma_pred # for train_step use
+  return None, metrics, pred_to_show # for train_step use
 
 def global_seed(seed):
   torch.manual_seed(seed)
@@ -528,7 +527,8 @@ def train_and_evaluate(
   )
 
   p_eval_step_compute = jax.pmap(
-    eval_step,
+    partial(eval_step,
+            config=config),
     axis_name='batch'
   )
 
@@ -600,7 +600,7 @@ def train_and_evaluate(
       #   exit(114514)
       # continue
 
-      state, metrics = train_step(state, batch, rngs, p_train_step_compute)
+      state, metrics = train_step(state, batch, rngs, p_train_step_compute, config)
       
       if epoch == epoch_offset and n_batch == 0:
         log_for_0('p_train_step compiled in {}s'.format(time.time() - train_metrics_last_t))
@@ -645,7 +645,7 @@ def train_and_evaluate(
     eval_metrics_buffer = []
     for n_batch, batch in zip(range(val_steps), val_loader):
       batch = prepare_batch_data(batch, config)
-      _, metrics = train_step(state, batch, rngs, p_eval_step_compute)
+      _, metrics = train_step(state, batch, rngs, p_eval_step_compute, config)
       eval_metrics_buffer.append(metrics)
       if (n_batch + 1) % config.log_per_step == 0:
         log_for_0('epoch: {} [Eval] {}/{}'.format(epoch, n_batch + 1, val_steps))

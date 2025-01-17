@@ -47,31 +47,13 @@ def get_config():
   model.out_channels = 1
 
   model.base_width = 64
-  model.n_T = 18  # inference stepss
   model.dropout = 0.0
 
   model.use_aug_label = False
-  model.average_loss = False
-
-  model.sampler = 'euler' # or 'heun'
-  model.ode_solver = 'jax'  # or 'scipy', which use RK45 solver
-  model.net_type = 'ncsnpp'
-
-  # # DDIM
-  # model.beta_schedule = 'linear'
-  # model.beta_start = 1e-4
-  # model.beta_end = 0.02
-  # model.num_diffusion_timesteps = 1000
-  model.embedding_type = 'positional'
+  model.net_type = 'sqa_t_ver1'
 
   config.aug = aug = ml_collections.ConfigDict()
   aug.use_edm_aug = False
-
-  # Consistency training
-  config.ct = ct = ml_collections.ConfigDict()
-  ct.start_ema = 0.9
-  ct.start_scales = 2
-  ct.end_scales = 150
 
   # Dataset
   config.dataset = dataset = ml_collections.ConfigDict()
@@ -84,16 +66,6 @@ def get_config():
   dataset.fake_data = False
   dataset.out_channels = 0  # from model
   dataset.steps_per_epoch = -1
-
-  # Eval fid
-  config.fid = fid = ml_collections.ConfigDict()
-  fid.num_samples = 50000
-  fid.fid_per_epoch = 500
-  fid.on_use = True
-  fid.eval_only = False
-  fid.device_batch_size = 128
-  # fid.cache_ref = '/kmh-nfs-us-mount/data/cached/cifar10_jax_stats_20240820.npz' # pytorch
-  fid.cache_ref = '/kmh-nfs-us-mount/staging/zhh/data/cached/zhh_tfds_train_cifar10_stats_20241124.npz'
 
   # Training
   config.optimizer = 'sgd'
@@ -120,9 +92,6 @@ def get_config():
   config.checkpoint_per_epoch = 200
 
   config.steps_per_eval = -1
-
-  config.restore = ''
-  config.pretrain = ''
 
   config.half_precision = False
 

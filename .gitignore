@@ -2,7 +2,7 @@ code/data/
 **/__pycache__/
 code/train_out.ipynb
 code/log/
-code/tmp/
+tmp/
 code/config.sh
 code/config-sqa.sh
 *.png
