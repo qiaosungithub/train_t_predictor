@@ -28,7 +28,7 @@ from PIL import Image
 from absl import logging
 from functools import partial
 
-from models.edm.augment import AugmentPipe
+# from models.edm.augment import AugmentPipe
 
 
 IMAGE_SIZE = 224
@@ -49,6 +49,7 @@ def prepare_batch_data(batch, config, batch_size=None):
   image, label = batch  
 
   if config.aug.use_edm_aug:
+    raise NotImplementedError
     augment_pipe = AugmentPipe(p=0.12, xflip=1e8, yflip=1, scale=1, rotate_frac=1, aniso=1, translate_frac=1)
     image, augment_label = augment_pipe(image)
   else:
@@ -171,7 +172,37 @@ def create_split(
       persistent_workers=True if dataset_cfg.num_workers > 0 else False,
     )
     steps_per_epoch = len(it)
-  else:
-    raise NotImplementedError
+  elif split == 'val':
+    if dataset_cfg.root == "CIFAR":
+      ds = datasets.CIFAR10(
+        root='~/cache',
+        train=False,
+        download=True,
+        transform=transforms.Compose([
+          transforms.RandomHorizontalFlip(p=0.5),
+          transforms.ToTensor(),
+          transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]),
+      )
+    else:
+      raise NotImplementedError
+    logging.info(ds)
+    sampler = DistributedSampler(
+      ds,
+      num_replicas=jax.process_count(),
+      rank=rank,
+      shuffle=True,
+    )
+    it = DataLoader(
+      ds, batch_size=batch_size, drop_last=True,
+      worker_init_fn=partial(worker_init_fn, rank=rank),
+      sampler=sampler,
+      num_workers=dataset_cfg.num_workers,
+      prefetch_factor=dataset_cfg.prefetch_factor if dataset_cfg.num_workers > 0 else None,
+      pin_memory=dataset_cfg.pin_memory,
+      persistent_workers=True if dataset_cfg.num_workers > 0 else False,
+    )
+    steps_per_epoch = len(it)
+  else: raise ValueError(f"split must be 'train' or 'val', but got {split}")
 
   return it, steps_per_epoch

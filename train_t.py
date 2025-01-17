@@ -40,17 +40,16 @@ from utils.vis_util import make_grid_visualization, visualize_cifar_batch
 from utils.logging_util import log_for_0, Timer
 from utils.metric_utils import tang_reduce
 from utils.display_utils import show_dict, display_model, count_params
-import utils.fid_util as fid_util
-import utils.sample_util as sample_util
 
-# import models.models_ddpm as models_ddpm
-import models.t.t as t
-from models.models_ddpm import generate, edm_ema_scales_schedules
-from input_pipeline import create_split
+import models.t as t
+
+import input_pipeline
+from input_pipeline import prepare_batch_data
 
 NUM_CLASSES = 10
 
 def get_input_pipeline(dataset_config):
+    raise ImportError
     assert dataset_config.name == 'cifar10'
     if dataset_config.name == 'imagenet2012:5.*.*':
         import input_pipeline_imgnet as input_pipeline
@@ -423,20 +422,6 @@ def create_train_state(
   )
   return state
 
-def prepare_batch_data(batch, config, batch_size=None):
-  """Reformat a input batch from TF Dataloader.
-  
-  Args:
-    batch: dict
-      image: shape (b1, b2, h, w, c)
-      label: shape (b1, b2)
-    batch_size = expected batch_size of this node, for eval's drop_last=False only
-
-  Useless here
-  """
-
-  return batch
-
 # def _update_model_avg(model_avg, state_params, ema_decay):
 #   return jax.tree_util.tree_map(lambda x, y: ema_decay * x + (1.0 - ema_decay) * y, model_avg, state_params)
 #   # return model_avg
@@ -471,30 +456,24 @@ def train_and_evaluate(
 
   ########### Create DataLoaders ###########
 
-  input_pipeline = get_input_pipeline(dataset_config)
-  input_type = tf.bfloat16 if config.half_precision else tf.float32
-  dataset_builder = tfds.builder(dataset_config.name)
+  # input_pipeline = get_input_pipeline(dataset_config)
+  # input_type = tf.bfloat16 if config.half_precision else tf.float32
+  # dataset_builder = tfds.builder(dataset_config.name)
   assert config.batch_size % jax.process_count() == 0, ValueError('Batch size must be divisible by the number of devices')
   local_batch_size = config.batch_size // jax.process_count()
   assert local_batch_size % jax.local_device_count() == 0, ValueError('Local batch size must be divisible by the number of local devices')
   log_for_0('local_batch_size: {}'.format(local_batch_size))
   log_for_0('jax.local_device_count: {}'.format(jax.local_device_count()))
   log_for_0('global batch_size: {}'.format(config.batch_size))
-  train_loader, steps_per_epoch, yierbayiyiliuqi = input_pipeline.create_split(
-    dataset_builder,
-    dataset_config=dataset_config,
-    training_config=config,
-    local_batch_size=local_batch_size,
-    input_type=input_type,
-    train=False if dataset_config.fake_data else True
+  train_loader, steps_per_epoch = input_pipeline.create_split(
+    config.dataset,
+    local_batch_size,
+    split='train',
   )
-  val_loader, val_steps, _ = input_pipeline.create_split(
-    dataset_builder,
-    dataset_config=dataset_config,
-    training_config=config,
-    local_batch_size=local_batch_size,
-    input_type=input_type,
-    train=False
+  val_loader, val_steps = input_pipeline.create_split(
+    config.dataset,
+    local_batch_size,
+    split='val',
   )
   if dataset_config.fake_data:
     log_for_0('Note: using fake data')
@@ -567,9 +546,9 @@ def train_and_evaluate(
     for n_batch, batch in zip(range(steps_per_epoch), train_loader):
 
       step = epoch * steps_per_epoch + n_batch
-      assert config.aug.use_edm_aug == False, "we don't support edm aug for now"
+      assert config.aug.use_edm_aug == False, "we don't support edm aug for t predictor"
       batch = prepare_batch_data(batch, config)
-      ep = step * config.batch_size / yierbayiyiliuqi
+      ep = step / steps_per_epoch
 
       # img = batch['image']
       # print(f"img.shape: {img.shape}")
