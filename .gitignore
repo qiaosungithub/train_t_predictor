@@ -3,8 +3,8 @@ code/data/
 code/train_out.ipynb
 code/log/
 tmp/
-code/config.sh
-code/config-sqa.sh
+config.sh
+config-sqa.sh
 *.png
 zhh_code/
 images/

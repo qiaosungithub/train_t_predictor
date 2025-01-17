@@ -443,7 +443,6 @@ def train_and_evaluate(
   config.dataset.out_channels = config.model.out_channels
   model_config = config.model 
   dataset_config = config.dataset
-  fid_config = config.fid
   if rank == 0 and config.wandb:
     wandb.init(project='sqa_t_pred', dir=workdir, tags=['sqa_EDM'])
     wandb.config.update(config.to_dict())
