@@ -1,0 +1,14 @@
+code/data/
+**/__pycache__/
+code/train_out.ipynb
+code/log/
+code/tmp/
+code/config.sh
+code/config-sqa.sh
+*.png
+zhh_code/
+images/
+
+code/models/测.py
+*知道
+*东灵
